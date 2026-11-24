@@ -2,7 +2,11 @@
 //
 // It holds one read-only AltomateHR API key per Globe company, polls each
 // company's data, merges the three into one snapshot and serves it (plus the
-// map page) to browsers on the office network. Keys never reach the browser.
+// map page) to browsers. Keys never reach the browser.
+//
+// Two ways to run it:
+//   - office mode (default): only computers on the office network may open it;
+//   - internet mode (PUBLIC=true): anyone with the link may open it (no password yet).
 //
 // What leaves this server is deliberately thin: names, job titles and clock-in
 // status. No emails, selfies or GPS coordinates of people.
@@ -17,7 +21,9 @@ const net = require('node:net');
 loadEnv(path.join(__dirname, '.env'));
 const API = (process.env.ALTOMATE_API_URL || 'http://localhost:5001').replace(/\/+$/, '');
 const KEYS = (process.env.GLOBE_KEYS || '').split(',').map(s => s.trim()).filter(Boolean);
-const HOST = process.env.HOST || '127.0.0.1';
+// Internet mode: no network check, and listen on every address so a host such as DigitalOcean can reach it.
+const PUBLIC_MODE = /^(1|true|yes)$/i.test(process.env.PUBLIC || '');
+const HOST = process.env.HOST || (PUBLIC_MODE ? '0.0.0.0' : '127.0.0.1');
 const PORT = Number(process.env.PORT || 8080);
 const REFRESH_MS = Math.max(15, Number(process.env.REFRESH_SECONDS || 30)) * 1000;
 const SLOW_MS = 10 * 60 * 1000; // company name, projects and staff list change rarely
@@ -151,17 +157,24 @@ function expand6(s) {
   const parts = s.includes('::') ? [...hp, ...Array(8 - hp.length - tp.length).fill('0'), ...tp] : hp;
   return parts.flatMap(p => { const n = parseInt(p || '0', 16); return [n >> 8, n & 0xff]; });
 }
-const allowed = ip => ALLOW.some(c => { try { return inCidr(ip || '', c); } catch { return false; } });
+const allowed = ip => PUBLIC_MODE || ALLOW.some(c => { try { return inCidr(ip || '', c); } catch { return false; } });
 
 // ---------- HTTP ----------
 const PUBLIC = path.join(__dirname, 'public');
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
-const SECURITY = { 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'SAMEORIGIN' };
+// noindex: the page lists staff names, so ask search engines never to index it (it matters most in internet mode).
+const SECURITY = { 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'SAMEORIGIN', 'X-Robots-Tag': 'noindex, nofollow' };
 
 const server = http.createServer(async (req, res) => {
   if (!allowed(req.socket.remoteAddress)) { res.writeHead(403, SECURITY); res.end('Office network only.'); return; }
   const url = new URL(req.url, 'http://x');
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405, SECURITY); res.end(); return; }
+
+  if (url.pathname === '/robots.txt') {
+    res.writeHead(200, { ...SECURITY, 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('User-agent: *\nDisallow: /\n');
+    return;
+  }
 
   if (url.pathname === '/api/floor') {
     if (!snapshot.at) await refresh().catch(() => {});
@@ -183,5 +196,5 @@ const server = http.createServer(async (req, res) => {
 refresh().catch(() => {});
 setInterval(() => refresh().catch(() => {}), REFRESH_MS);
 server.listen(PORT, HOST, () => {
-  console.log(`Globe Live Floor on http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT} · ${KEYS.length} companies · refresh every ${REFRESH_MS / 1000}s · AltomateHR at ${API}`);
+  console.log(`Globe Live Floor on http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT} · ${PUBLIC_MODE ? 'INTERNET mode: anyone with the link can open it' : 'office network only'} · ${KEYS.length} companies · refresh every ${REFRESH_MS / 1000}s · AltomateHR at ${API}`);
 });

@@ -12,7 +12,7 @@ It refreshes every 30 seconds. When someone clocks in, they get out of bed and w
 ## How it works
 
 ```
-browser (office network)  →  server.js  →  AltomateHR public API (one read-only key per company)
+browser  →  server.js  →  AltomateHR public API (one read-only key per company)
 ```
 
 `server.js` keeps the three keys on the server. It never sends them to the browser. It reads, per company:
@@ -40,14 +40,34 @@ It merges the three companies into one snapshot at `/api/floor`. That snapshot c
 
 4. Open `http://localhost:8080` and press **📺 Big screen** for the TV.
 
-## Office network only
+## Put it on the internet (DigitalOcean App Platform)
 
-There is no login. Access is limited to the office network:
+1. In DigitalOcean: **Create → App → GitHub → `FusionETA/altomatehr-3d`, branch `main`**, autodeploy on.
+2. It finds `package.json` and runs `npm start`. Keep the HTTP port at **8080**.
+3. Plan: the smallest **Basic** web service (one instance; it holds the snapshot in memory, so don't scale it to two).
+4. **Environment variables** (set each one to *Encrypt* where it says so):
+
+   | Name | Value |
+   |---|---|
+   | `PUBLIC` | `true` |
+   | `ALTOMATE_API_URL` | production AltomateHR API address |
+   | `GLOBE_KEYS` | the 3 keys, comma-separated, Engineering, Express, Success Learning (**Encrypt**) |
+   | `REFRESH_SECONDS` | `30` |
+
+5. Deploy. The app gets an `https://….ondigitalocean.app` address; add your own domain under **Settings → Domains** if you like.
+
+`PUBLIC=true` turns off the office-network check: **anyone with the link can see staff names, who is late, who is outside a site and who is on leave, with the leave type.** There is no password yet. The page and server tell search engines not to index it (`noindex` and `robots.txt`), but share the link carefully. Add a login before sharing it widely.
+
+Pushing to `main` redeploys automatically.
+
+## Office network only (without `PUBLIC=true`)
+
+With `PUBLIC` unset, there is no login and access is limited to the office network:
 
 - `HOST=127.0.0.1` (the default) means only the computer running it can open the page. That suits a TV PC.
 - `HOST=0.0.0.0` lets other office computers open it at `http://<that-pc's-ip>:8080`.
 - Either way, any request from outside private address ranges (`ALLOW_NETWORKS`) gets `403`.
-- **Don't port-forward it or put it on the internet.** It shows staff names and where they are.
+- Don't port-forward it. To put it on the internet, use internet mode (above) instead.
 
 ## Known limits
 
