@@ -340,7 +340,7 @@ h1 { margin: 0; font-family: var(--font-fun); font-size: 28px; font-weight: 700;
         <span><span class="dot c-idle"></span>Not clocked in</span>
         <span><span class="dot c-leave"></span>On leave</span>
         <span><span class="sw-ring"></span>Geofence</span>
-        <span class="lg-hint">Hover or tap a pin for details · drag to spin · scroll to zoom</span>
+        <span class="lg-hint">Hover or tap a pin for details · drag to move · right-drag to turn · scroll to zoom</span>
       </div>
     </div>
 
@@ -575,6 +575,18 @@ h1 { margin: 0; font-family: var(--font-fun); font-size: 28px; font-weight: 700;
       controls.minZoom = 0.22; controls.maxZoom = 6;
       controls.minPolarAngle = 0.35; controls.maxPolarAngle = 1.22;
       controls.minAzimuthAngle = -0.2; controls.maxAzimuthAngle = 1.75; // keep the tall buildings behind the action
+      // Google Maps style: left-drag / one finger slides the map; right-drag / two fingers rotate.
+      controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
+      controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
+      controls.screenSpacePanning = false; // slide along the ground, not up into the sky
+      controls.rotateSpeed = 0.5;
+      // Keep the view over the city so nobody drags it off into empty ground.
+      const PAN_LIMIT = 110, panFix = new THREE.Vector3();
+      controls.addEventListener('change', () => {
+        const t = controls.target;
+        panFix.set(Math.max(-PAN_LIMIT, Math.min(PAN_LIMIT, t.x)) - t.x, -t.y, Math.max(-PAN_LIMIT, Math.min(PAN_LIMIT, t.z)) - t.z);
+        if (panFix.lengthSq() > 0) { t.add(panFix); camera.position.add(panFix); }
+      });
       controls.update(); controls.saveState();
     }
 
