@@ -8,6 +8,7 @@ A 3D city map of Globe's three companies, live from AltomateHR:
 - Each company has its own district, colour, name label and **HQ office tower**. Staff clocked in without a project work at their own company's HQ.
 - The building in the middle holds the AltomateHR module rooms (attendance, claims, payroll, leave, overtime, approvals) for all three companies. It is not an HQ.
 - Click a name, a project, an HQ, the hotel or the beach for the list.
+- Click an HR module room (Attendance, Approvals, Leave, Claims) for a table with one row per company and a total.
 
 It refreshes every 30 seconds. When someone clocks in, they get out of bed and walk to work.
 
@@ -23,6 +24,7 @@ browser  →  server.js  →  AltomateHR public API (one read-only key per compa
 |---|---|
 | `GET /attendance/org/today` | every refresh |
 | `GET /leave/on-leave-today` | every refresh |
+| `GET /claims/all` | every 2 minutes (only counts and RM totals per status are kept) |
 | `GET /organizations/current`, `GET /projects`, `GET /employees` | every 10 minutes |
 
 It merges the three companies into one snapshot at `/api/floor`. That snapshot carries only names, job titles and clock-in status: no emails, selfies or GPS coordinates. Each company is read with its own key, so the companies stay separate in AltomateHR.

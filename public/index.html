@@ -237,6 +237,14 @@ h1 { margin: 0; font-family: var(--font-fun); font-size: 28px; font-weight: 700;
 .list li { display: flex; justify-content: space-between; gap: 10px; }
 .list li .lv { font-weight: 800; font-variant-numeric: tabular-nums; text-align: right; }
 .list .empty { color: var(--muted); }
+.cotab { width: 100%; margin-top: 10px; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.cotab th { font-size: 11px; font-weight: 800; color: var(--muted); text-align: right; padding: 4px 0 6px 8px; border-bottom: 1px dashed var(--border); }
+.cotab th:first-child, .cotab td:first-child { text-align: left; padding-left: 0; }
+.cotab td { text-align: right; padding: 7px 0 7px 8px; border-bottom: 1px dashed var(--border); font-weight: 800; vertical-align: top; }
+.cotab td:first-child { font-weight: 700; }
+.cotab td small { display: block; font-weight: 600; color: var(--muted); font-size: 11px; white-space: nowrap; }
+.cotab tr.tot td { border-bottom: 0; border-top: 1.5px solid var(--border); }
+.cotab .na { color: var(--muted); font-weight: 600; }
 .d-foot { margin: 12px 0 0; font-size: 12px; color: var(--muted); line-height: 1.5; }
 .feed ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 440px; overflow: auto; }
 .feed li { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 10px; align-items: start; padding: 8px; border-radius: 14px; font-size: 13px; line-height: 1.45; }
@@ -443,7 +451,7 @@ h1 { margin: 0; font-family: var(--font-fun); font-size: 28px; font-weight: 700;
     p.leaveType = e.leaveType || null; p.leaveUntil = e.leaveUntil || null;
   }
   LIVE.forEach(c => c.people.forEach(e => { const p = byEmp.get(c.id + ':' + e.id); if (p) applyPerson(p, e); }));
-  state.at = SNAP.at; state.errors = SNAP.errors || [];
+  state.at = SNAP.at; state.errors = SNAP.errors || []; setClaims(SNAP);
   const first = n => n.split(' ')[0];
 
   // ---------- City layout ----------
@@ -485,17 +493,28 @@ h1 { margin: 0; font-family: var(--font-fun); font-size: 28px; font-weight: 700;
 
   // ---------- Derived numbers ----------
   const isIn = p => p.status === 'onsite' || p.status === 'outside';
-  function stats() {
+  function stats(ps = people) {
     const c = { onsite: 0, outside: 0, notin: 0, leave: 0, late: 0, done: 0 };
-    for (const p of people) {
+    for (const p of ps) {
       if (p.out) { c.done++; continue; }
       c[p.status]++;
       if (p.status === 'notin' && state.minute > toMin(siteById[p.site].start)) c.late++;
     }
     c.clocked = c.onsite + c.outside;
-    c.expected = people.length - c.leave;
+    c.expected = ps.length - c.leave;
     c.waiting = c.outside;
     return c;
+  }
+  // Claim totals per company (counts and amounts only), from the server snapshot.
+  const CLAIM_KEYS = ['pending', 'submitted', 'approvedThisMonth', 'rejectedThisMonth'];
+  function setClaims(snap) {
+    state.coClaims = {};
+    for (const c of snap.companies.slice(0, 3)) state.coClaims[c.id] = { claims: c.claims || null, error: c.claimsError || null };
+  }
+  function claimTotals() {
+    const t = Object.fromEntries(CLAIM_KEYS.map(k => [k, { n: 0, amount: 0 }]));
+    for (const { claims } of Object.values(state.coClaims || {})) if (claims) for (const k of CLAIM_KEYS) { t[k].n += claims[k].n; t[k].amount += claims[k].amount; }
+    return t;
   }
   const siteStats = id => {
     const c = { onsite: 0, outside: 0, notin: 0, leave: 0, done: 0 };
@@ -1599,7 +1618,7 @@ h1 { margin: 0; font-family: var(--font-fun); font-size: 28px; font-weight: 700;
     function refresh() {
       tuckIn();
       const c = stats();
-      const n = state.claims.length;
+      const n = claimTotals().pending.n;
       stacks.claims.forEach((m, i) => { m.visible = i < Math.min(8, n); });
       stacks.apClaims.forEach((m, i) => { m.visible = i < Math.min(6, n); });
       stacks.apLeave.forEach((m, i) => { m.visible = i < Math.min(6, state.leaveReqs.length); });
@@ -1611,7 +1630,7 @@ h1 { margin: 0; font-family: var(--font-fun); font-size: 28px; font-weight: 700;
       const ct = (t, cls = '') => `<span class="ct ${cls}">${t}</span>`;
       const roomText = {
         attendance: ct(`${c.clocked} in`),
-        claims: ct(`${n} pending`),
+        claims: ct(`${n} waiting`),
         payroll: ct('Nov · draft'),
         leave: ct(`${c.leave} off`),
         overtime: ct(plural(state.otReqs.length, 'ask')),
@@ -2024,7 +2043,7 @@ h1 { margin: 0; font-family: var(--font-fun); font-size: 28px; font-weight: 700;
         pushFeed(state.minute, '🏖️', `<b>${esc(p.name)}</b> is on ${esc(p.leaveType || 'leave')} today`);
       }
     }));
-    state.at = snap.at; state.errors = snap.errors || [];
+    state.at = snap.at; state.errors = snap.errors || []; setClaims(snap);
     updateUI();
     if (relayout && Date.now() > reloadAt) { reloadAt = Date.now() + 60000; setTimeout(() => location.reload(), 4000); }
   }
@@ -2151,17 +2170,41 @@ h1 { margin: 0; font-family: var(--font-fun); font-size: 28px; font-weight: 700;
       return;
     }
     const id = sel.id, room = roomById[id];
-    let body = '';
-    if (id === 'attendance' || id === 'approvals') {
-      body = rows([['Clocked in', `${c.clocked} of ${c.expected}`], ['Inside geofence', c.onsite], ['Outside geofence', c.outside], ['Not clocked in', c.notin], ['Clocked out', c.done]])
-        + list('Outside geofence, waiting for approval', people.filter(p => p.status === 'outside').map(p => [`${pbtn(p)} <span class="d-sub">· ${where(p)}</span>`, p.dist == null ? '' : `${p.dist} m`]), 'None right now.');
+    // One row per company, then a total row. cells(group) returns that row's cells.
+    const coTable = (cols, cells, totalCells) => `<table class="cotab"><thead><tr><th>Company</th>${cols.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>`
+      + COMPANIES.map((co, ci) => `<tr><td><span class="dot" style="background:${co.color}"></span> ${esc(co.short.replace(/^Globe\s+/i, ''))}</td>${cells(co, ci).map(v => `<td>${v}</td>`).join('')}</tr>`).join('')
+      + `<tr class="tot"><td>All three</td>${totalCells.map(v => `<td>${v}</td>`).join('')}</tr></tbody></table>`;
+    const peopleOf = ci => people.filter(p => p.ci === ci);
+    const money = (b, cur) => b.n ? `${b.n}<small>${esc(cur || 'RM')} ${b.amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</small>` : '0';
+    const coTag = p => `<span class="d-sub">· ${esc(p.co)}</span>`;
+    let body = '', sub = '';
+    if (id === 'attendance') {
+      const att = s => [`${s.clocked}<small>of ${s.expected}</small>`, s.outside, s.notin, s.done];
+      sub = `${c.clocked} of ${c.expected} clocked in across the three companies`;
+      body = coTable(['In', 'Outside', 'Not in', 'Out'], (co, ci) => att(stats(peopleOf(ci))), att(c))
+        + `<p class="d-foot">“Outside” is clocked in outside the project’s geofence. “Out” has clocked out for the day.</p>`;
+    } else if (id === 'approvals') {
+      sub = c.waiting ? `${plural(c.waiting, 'clock-in')} outside a geofence` : 'Nothing waiting right now';
+      body = coTable(['Outside geofence'], (co, ci) => [stats(peopleOf(ci)).outside], [c.outside])
+        + list('Outside geofence, waiting for approval', people.filter(p => p.status === 'outside').map(p => [`${pbtn(p)} ${coTag(p)} <span class="d-sub">· ${where(p)}</span>`, p.dist == null ? '' : `${p.dist} m`]), 'None right now.');
     } else if (id === 'leave') {
-      body = rows([['On leave today', c.leave]]) + list('On leave today', people.filter(p => p.status === 'leave').map(p => [pbtn(p), esc(p.leaveType || '')]), 'Nobody.');
+      sub = `${c.leave} on leave today`;
+      body = coTable(['On leave'], (co, ci) => [stats(peopleOf(ci)).leave], [c.leave])
+        + list('On leave today', people.filter(p => p.status === 'leave').map(p => [`${pbtn(p)} ${coTag(p)}`, esc(p.leaveType || '')]), 'Nobody.');
+    } else if (id === 'claims') {
+      const t = claimTotals(), cur = Object.values(state.coClaims || {}).map(x => x.claims && x.claims.currency).find(Boolean);
+      sub = `${plural(t.pending.n, 'claim')} waiting for an approver`;
+      const errs = COMPANIES.map(co => ({ co, e: (state.coClaims[co.id] || {}).error })).filter(x => x.e);
+      body = coTable(['Waiting', 'Submitted', 'Approved', 'Rejected'], co => {
+        const x = state.coClaims[co.id], cl = x && x.claims;
+        return cl ? [money(cl.pending, cl.currency), money(cl.submitted, cl.currency), money(cl.approvedThisMonth, cl.currency), cl.rejectedThisMonth.n] : ['<span class="na">n/a</span>', '', '', ''];
+      }, [money(t.pending, cur), money(t.submitted, cur), money(t.approvedThisMonth, cur), t.rejectedThisMonth.n])
+        + `<p class="d-foot">Waiting: needs an approver. Submitted: sent in, in the next stage. Approved and rejected count claims submitted this month. Amounts in ${esc(cur || 'RM')}. Updated every 2 minutes.`
+        + errs.map(x => `<br><span class="warn-t">${esc(x.co.short)}: ${esc(x.e)}</span>`).join('') + '</p>';
     } else {
       body = `<p class="d-foot">${room.name} isn’t on the live floor yet; open it in AltomateHR.</p>`;
     }
-    const here = people.filter(p => p.site === 'hq' && p.room === id && isIn(p) && !p.hidden);
-    el.innerHTML = head(room.em, 'HQ room', room.name, here.length ? `${here.length} at a desk here` : '') + body;
+    el.innerHTML = head(room.em, 'HR module · all three companies', room.name, sub) + body;
   }
 
   // Data status: when each company last updated, and any that failed.

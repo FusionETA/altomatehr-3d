@@ -27,6 +27,7 @@ const HOST = process.env.HOST || (PUBLIC_MODE ? '0.0.0.0' : '127.0.0.1');
 const PORT = Number(process.env.PORT || 8080);
 const REFRESH_MS = Math.max(15, Number(process.env.REFRESH_SECONDS || 30)) * 1000;
 const SLOW_MS = 10 * 60 * 1000; // company name, projects and staff list change rarely
+const CLAIMS_MS = 2 * 60 * 1000; // claim totals: every 2 minutes is plenty for a wall map
 // Office network only: requests from anywhere else get 403, even if the port is exposed by mistake.
 const ALLOW = (process.env.ALLOW_NETWORKS || '127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,::1/128,fc00::/7')
   .split(',').map(s => s.trim()).filter(Boolean);
@@ -67,8 +68,41 @@ async function readCompany(key, i) {
     slow = { at: Date.now(), org, projects, employees };
     slowCache.set(i, slow);
   }
-  const [records, leave] = await Promise.all([get(key, '/attendance/org/today'), get(key, '/leave/on-leave-today')]);
-  return shape(i, slow, records || [], leave || []);
+  const [records, leave, claims] = await Promise.all([get(key, '/attendance/org/today'), get(key, '/leave/on-leave-today'), readClaims(key, i)]);
+  return { ...shape(i, slow, records || [], leave || []), ...claims };
+}
+
+// Claim totals per status. Only counts and amounts leave this server: no names, emails,
+// receipts or descriptions. A claims failure never takes the rest of the company down.
+const claimsCache = new Map(); // key index → { at, claims, claimsError }
+async function readClaims(key, i) {
+  const c = claimsCache.get(i);
+  if (c && Date.now() - c.at < CLAIMS_MS) return { claims: c.claims, claimsError: c.claimsError };
+  let out;
+  try { out = { claims: summariseClaims(await get(key, '/claims/all') || []), claimsError: null }; }
+  catch (err) {
+    console.warn(new Date().toISOString(), `company ${i + 1} claims:`, err.message);
+    out = { claims: c ? c.claims : null, claimsError: err.status === 403 ? 'This company\'s API key can\'t read claims (needs claims:read).' : 'Could not read claims.' };
+  }
+  claimsCache.set(i, { at: Date.now(), ...out });
+  return out;
+}
+
+const monthKey = d => new Date(d).toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }).slice(0, 7);
+function summariseClaims(list) {
+  const now = monthKey(Date.now());
+  const bucket = () => ({ n: 0, amount: 0 });
+  const s = { pending: bucket(), submitted: bucket(), approvedThisMonth: bucket(), rejectedThisMonth: bucket(), currency: null };
+  for (const c of list) {
+    const amt = Number(c.amount) || 0, st = String(c.status || '').toUpperCase();
+    const thisMonth = c.submittedAt && monthKey(c.submittedAt) === now;
+    const b = st === 'PENDING' ? s.pending : st === 'SUBMITTED' ? s.submitted
+      : st === 'APPROVED' && thisMonth ? s.approvedThisMonth : st === 'REJECTED' && thisMonth ? s.rejectedThisMonth : null;
+    if (!b) continue;
+    b.n++; b.amount = Math.round((b.amount + amt) * 100) / 100;
+    s.currency = s.currency || c.currency || null;
+  }
+  return s;
 }
 
 // Turn the API responses into the map's snapshot for one company.
