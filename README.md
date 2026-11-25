@@ -5,7 +5,9 @@ A 3D city map of Globe's three companies, live from AltomateHR:
 - **Clocked in** people stand at their project (green ring), or outside its geofence (orange `!`).
 - **Not clocked in yet**, or **clocked out**, people sleep at the **Snooze Inn**.
 - **On approved leave** people relax at the **Leave Beach**.
-- Each company has its own district, colour and name label. Click a name, a project, the hotel or the beach for the list.
+- Each company has its own district, colour, name label and **HQ office tower**. Staff clocked in without a project work at their own company's HQ.
+- The building in the middle holds the AltomateHR module rooms (attendance, claims, payroll, leave, overtime, approvals) for all three companies. It is not an HQ.
+- Click a name, a project, an HQ, the hotel or the beach for the list.
 
 It refreshes every 30 seconds. When someone clocks in, they get out of bed and walk to work.
 
@@ -73,6 +75,6 @@ With `PUBLIC` unset, there is no login and access is limited to the office netwo
 
 - **"Not clocked in"** means everyone with no clock-in today, including people on a rest day. AltomateHR's API doesn't expose rosters yet.
 - **Gender** isn't in the API, so every figure uses the neutral build.
-- **New busy projects:** when a project gets its first clock-in of the day, the page reloads once to give it a city block. Districts have room for 8 (Engineering), 4 (Express) and 3 (Success Learning) busy projects; any more are listed under "Quiet sites" as busy but not on the map.
+- **New busy projects:** when a project gets its first clock-in of the day, the page reloads once to give it a city block. Each company's HQ takes the block next to the middle of its district, which leaves room for 7 (Engineering), 3 (Express) and 2 (Success Learning) busy projects; any more are listed under "Quiet sites" as busy but not on the map.
 - **New employees** appear after the nightly reload, which happens automatically at midnight.
 - three.js loads from a CDN, so the PC needs internet access (it needs it for AltomateHR anyway).

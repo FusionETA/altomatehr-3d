@@ -329,7 +329,7 @@ h1 { margin: 0; font-family: var(--font-fun); font-size: 28px; font-weight: 700;
 
   <main class="layout">
     <div class="stage" id="stage">
-      <canvas id="scene" aria-label="3D view of HQ departments and project sites"></canvas>
+      <canvas id="scene" aria-label="3D view of the companies’ HQs, HR module rooms and project sites"></canvas>
       <div class="tint" id="tint"></div>
       <div class="labels" id="labels"></div>
       <div class="daybar" aria-label="Progress through the working day"><span class="ph" id="dayPhase">🌅 Morning rush</span><span class="track"><span class="fill" id="dayFill"></span><span class="pin" id="dayPin" aria-hidden="true">☀️</span></span><span class="end">17:30</span></div>
@@ -390,15 +390,20 @@ h1 { margin: 0; font-family: var(--font-fun); font-size: 28px; font-weight: 700;
   COMPANIES.forEach((c, i) => { if (COMPANIES.findIndex(d => d.short === c.short) !== i) c.short += ` (${i + 1})`; });
   const REGIONS = COMPANIES.map(c => c.short);
   const coByShort = Object.fromEntries(COMPANIES.map(c => [c.short, c]));
-  const coName = s => s.id === 'hq' ? 'Globe Group HQ (shared)' : coByShort[s.region].name;
+  const coName = s => s.id === 'hq' ? 'All three companies' : coByShort[s.region].name;
   const hash = t => { let h = 0; for (const ch of String(t)) h = (h * 31 + ch.charCodeAt(0)) | 0; return Math.abs(h); };
   const clip = (t, n = 24) => t.length > n ? t.slice(0, n - 1).trimEnd() + '…' : t;
   const KINDS = ['frame', 'warehouse', 'containers', 'racks', 'substation', 'tanks'];
   const site = (id, name, short, em, region, addr, extra = {}) => Object.assign({ id, name, short, em, region, addr, fenceM: 200, start: '09:00', end: '18:00' }, extra);
-  const SITES = [site('hq', 'Globe Group HQ', 'HQ', '🏢', 'Globe Group', 'Head office', { x: 0, z: 0 })];
+  // The centre building holds the AltomateHR module rooms (attendance, claims, payroll…) for all three companies.
+  // Each company has its own HQ office in its own district: staff clocked in without a project work there.
+  const SITES = [site('hq', 'HR modules', 'HR', '🗂️', 'Globe Group', 'AltomateHR modules, all companies', { x: 0, z: 0 })];
+  const hqOf = ci => 'hq-' + COMPANIES[ci].id;
+  COMPANIES.forEach((co, ci) => SITES.push(site(hqOf(ci), `${co.short} HQ`, 'HQ', '🏢', co.short, 'Head office', { hq: true, kind: 'office' })));
   LIVE.forEach((c, ci) => { for (const pr of c.projects) SITES.push(site(pr.id, pr.name, clip(pr.name), COMPANIES[ci].em, COMPANIES[ci].short, pr.location || 'No address set',
     { start: pr.start || '09:00', end: pr.end || '18:00', fenceM: c.geofenceRadius || 200, kind: KINDS[hash(pr.id) % KINDS.length] })); });
   const siteById = Object.fromEntries(SITES.map(s => [s.id, s]));
+  const isOffice = id => id === 'hq' || !!(siteById[id] && siteById[id].hq); // office staff, not site crew
   const RW = 9, RD = 7.6;
   const ROOMS = [
     { id: 'attendance', name: 'Attendance', em: '⏰', x: -9.6, z: -4.2 },
@@ -424,7 +429,7 @@ h1 { margin: 0; font-family: var(--font-fun); font-size: 28px; font-weight: 700;
   LIVE.forEach((c, ci) => c.people.forEach(e => {
     const p = { id: people.length, empId: e.id, name: e.nickname ? `${e.name} (${e.nickname})` : e.name, role: e.title || e.role, co: COMPANIES[ci].short,
       dept: COMPANIES[ci].short, gender: null, look: { hair: ['short', 'short', 'long', 'ponytail', 'bun'][hash(e.id) % 5], outfit: 'trousers' },
-      status: 'notin', out: false, site: 'hq', room: null, seat: 0, hqIdx: people.length, clockIn: null, clockOutAt: null, dist: null, late: 0,
+      ci, status: 'notin', out: false, site: hqOf(ci), room: null, seat: 0, hqIdx: people.length, clockIn: null, clockOutAt: null, dist: null, late: 0,
       pending: null, claimsMonth: 0, streak: 0 };
     people.push(p); byEmp.set(c.id + ':' + e.id, p);
   }));
@@ -432,7 +437,7 @@ h1 { margin: 0; font-family: var(--font-fun); font-size: 28px; font-weight: 700;
     p.out = e.status === 'done';
     p.status = p.out ? 'notin' : e.status;
     const proj = e.projectId && siteById[e.projectId] ? e.projectId : null;
-    p.site = (e.status === 'onsite' || e.status === 'outside' || p.out) && proj ? proj : 'hq';
+    p.site = (e.status === 'onsite' || e.status === 'outside' || p.out) && proj ? proj : hqOf(p.ci);
     p.clockIn = minOf(e.clockIn); p.clockOutAt = minOf(e.clockOut);
     p.dist = e.dist ?? null; p.late = e.late || 0; p.approval = e.approval || null;
     p.leaveType = e.leaveType || null; p.leaveUntil = e.leaveUntil || null;
@@ -450,7 +455,8 @@ h1 { margin: 0; font-family: var(--font-fun); font-size: 28px; font-weight: 700;
     s.size = s.crew > 20 ? 'L' : s.crew > 8 ? 'M' : 'S';
     s.r = SIZE_R[s.size];
   }
-  for (const s of SITES) if (s.id !== 'hq' && !s.crew) s.quiet = 'Nobody clocked in here today';
+  for (const s of SITES) if (s.hq) { s.size = 'M'; s.r = SIZE_R.M; }
+  for (const s of SITES) if (s.id !== 'hq' && !s.hq && !s.crew) s.quiet = 'Nobody clocked in here today';
   const ACTIVE = SITES.filter(s => s.id !== 'hq' && !s.quiet);
   const QUIET = SITES.filter(s => s.quiet);
   // Slots: four inside the HQ block (up to M), then whole city blocks around it (any size), nearest first.
@@ -466,7 +472,7 @@ h1 { margin: 0; font-family: var(--font-fun); font-size: 28px; font-weight: 700;
   {
     // Projects with problems on the day's plan sit closest to HQ, then the biggest crews.
     const score = s => people.filter(p => p.site === s.id && p.status === 'outside').length * 100 + s.crew; // problems nearest HQ
-    for (const s of [...ACTIVE].sort((a, b) => score(b) - score(a))) {
+    for (const s of [...ACTIVE].sort((a, b) => (!!b.hq - !!a.hq) || score(b) - score(a))) { // company HQs first: the block next to the centre
       const fits = sl => !sl.site && !sl.beach && SIZE_N[sl.max] >= SIZE_N[s.size];
       let free = SLOTS.filter(sl => fits(sl) && sl.co === s.region); if (!free.length) free = SLOTS.filter(fits); // own district first
       free = free.sort((a, b) => Math.hypot(a.x, a.z) - Math.hypot(b.x, b.z));
@@ -475,6 +481,7 @@ h1 { margin: 0; font-family: var(--font-fun); font-size: 28px; font-weight: 700;
     }
   }
   const ONMAP = ACTIVE.filter(s => !s.offMap);
+  const isProject = s => s.id !== 'hq' && !s.hq;
 
   // ---------- Derived numbers ----------
   const isIn = p => p.status === 'onsite' || p.status === 'outside';
@@ -1153,17 +1160,39 @@ h1 { margin: 0; font-family: var(--font-fun); font-size: 28px; font-weight: 700;
     for (const s of ONMAP) {
       const g = new THREE.Group(); g.position.set(s.x, 0, s.z); scene.add(g);
       const add = (w, h, d, mat, x, y, z, parent = g) => box(w, h, d, mat, x, y, z, parent);
-      const pad = new THREE.Mesh(new THREE.CylinderGeometry(s.r + 0.8, s.r + 0.8, 0.2, 56), mats.site);
+      const pad = new THREE.Mesh(new THREE.CylinderGeometry(s.r + 0.8, s.r + 0.8, 0.2, 56), s.hq ? mats.walk : mats.site);
       pad.position.y = 0.1; pad.receiveShadow = true; pad.userData.siteId = s.id; g.add(pad); pickables.push(pad);
       const ring = (geo, mat, y) => { const m = new THREE.Mesh(geo, mat); m.rotation.x = -Math.PI / 2; m.position.y = y; g.add(m); };
       ring(new THREE.CircleGeometry(s.r, 56), mats.fenceFill, 0.21);
       ring(new THREE.RingGeometry(s.r - 0.13, s.r + 0.13, 80), mats.fence, 0.22);
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < (s.hq ? 0 : 4); i++) {
         const a = i * Math.PI / 2 + Math.PI / 4;
         const c = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.6, 10), mats.warn); c.position.set(Math.cos(a) * s.r, 0.5, Math.sin(a) * s.r); c.castShadow = true; g.add(c);
       }
       const k = s.kind;
-      if (k === 'frame') {
+      if (k === 'office') {
+        const co = coByShort[s.region];
+        const coM = new THREE.MeshStandardMaterial({ color: co.color, roughness: 0.6 });
+        const glassM = new THREE.MeshStandardMaterial({ color: '#6f8fa8', roughness: 0.2, metalness: 0.3 });
+        add(6.4, 0.5, 5, mats.paper, 0, 0.2, -0.4);                          // podium
+        for (let f = 0; f < 4; f++) {                                       // four storeys: glass band + company-colour slab
+          add(5.6, 1.35, 4.2, glassM, 0, 0.7 + f * 1.7, -0.4);
+          add(5.9, 0.35, 4.5, f === 3 ? coM : mats.paper, 0, 2.05 + f * 1.7, -0.4);
+        }
+        add(2, 0.9, 1.6, mats.prop, 1.2, 7.2, -0.8);                        // rooftop plant
+        add(1.6, 1.3, 0.12, mats.desk, 0, 0.7, 1.72);                       // front door
+        const cv = document.createElement('canvas'); cv.width = 512; cv.height = 128; const cg = cv.getContext('2d');
+        cg.fillStyle = co.color; cg.fillRect(0, 0, 512, 128);
+        cg.fillStyle = '#ffffff'; cg.textAlign = 'center'; cg.textBaseline = 'middle';
+        let fs = 64; cg.font = `700 ${fs}px Fredoka, Manrope, sans-serif`;
+        const txt = `${co.em} ${co.short.replace(/^Globe\s+/i, '').toUpperCase()} HQ`;
+        while (cg.measureText(txt).width > 480 && fs > 24) { fs -= 4; cg.font = `700 ${fs}px Fredoka, Manrope, sans-serif`; }
+        cg.fillText(txt, 256, 68);
+        const tex = new THREE.CanvasTexture(cv);
+        const sign = new THREE.Mesh(new THREE.PlaneGeometry(5.4, 1.35), new THREE.MeshStandardMaterial({ map: tex, emissive: '#ffffff', emissiveMap: tex, emissiveIntensity: 0.2 }));
+        sign.position.set(0, 2.05 + 1.7 * 2 + 0.9, 1.88); g.add(sign);
+        s.lh = 10;
+      } else if (k === 'frame') {
         const lv = s.size === 'S' ? 3 : 4;
         for (let i = 0; i < lv; i++) {
           add(3.6, 0.2, 3.6, mats.paper, -0.3, 0.2 + i * 1.5, -0.3);
@@ -1336,7 +1365,7 @@ h1 { margin: 0; font-family: var(--font-fun); font-size: 28px; font-weight: 700;
       g.scale.setScalar(PS * build.h);
       const inner = new THREE.Group(); g.add(inner);
       const own = (base, opts = {}) => { const m = new THREE.MeshStandardMaterial(Object.assign({ roughness: 0.75, transparent: true }, opts)); m.color.set(base); return m; };
-      const worker = p.site !== 'hq', L = p.look, skirted = L.outfit === 'skirt' || L.outfit === 'kurung';
+      const worker = !isOffice(p.site), L = p.look, skirted = L.outfit === 'skirt' || L.outfit === 'kurung';
       p.shirtM = own('#ffffff', { roughness: 0.8 });
       p.pantsM = own(skirted ? SKIRT[p.id % SKIRT.length] : worker ? WORK_PANTS[p.id % WORK_PANTS.length] : PANTS[p.id % PANTS.length], { roughness: 0.85 });
       const legM = skirted ? own('#2b2522', { roughness: 0.6 }) : p.pantsM; // dark tights under a skirt
@@ -1591,7 +1620,8 @@ h1 { margin: 0; font-family: var(--font-fun); font-size: 28px; font-weight: 700;
       const roomPin = { attendance: c.clocked, claims: n, leave: c.leave, overtime: state.otReqs.length, approvals: c.waiting };
       const pinN = v => v ? `<span class="pin-n">${v}</span>` : '';
       for (const r of ROOMS) setLabel(roomLabels[r.id], `<span class="em">${r.em}</span>${r.id === 'approvals' && c.waiting ? `<span class="pin-w">${c.waiting}</span>` : pinN(roomPin[r.id])}<span class="nm">${r.name}</span>${roomText[r.id]}`, `${r.name} department`);
-      for (const s of [siteById.hq, ...ONMAP]) {
+      setLabel(siteLabels.hq, `<span class="em">🗂️</span><span class="tx"><span class="nm">HR modules</span><span class="ct">All three companies</span></span>`, 'HR modules: AltomateHR rooms for all three companies');
+      for (const s of ONMAP) {
         const sc = siteStats(s.id);
         const bits = [`${sc.onsite} on site`];
         if (sc.outside) bits.push(`<span class="warn">${sc.outside} outside</span>`);
@@ -1967,7 +1997,7 @@ h1 { margin: 0; font-family: var(--font-fun); font-size: 28px; font-weight: 700;
   // A project with someone in it now, but not on the street yet: reload so it gets a block (if one is free).
   let reloadAt = 0;
   function needsBlock(s) {
-    if (!s || s.id === 'hq' || ONMAP.includes(s)) return false;
+    if (!s || isOffice(s.id) || ONMAP.includes(s)) return false;
     s.quiet = null; s.offMap = true;
     return SLOTS.some(sl => !sl.site && !sl.beach);
   }
@@ -2034,7 +2064,7 @@ h1 { margin: 0; font-family: var(--font-fun); font-size: 28px; font-weight: 700;
   }[p.status]);
   const pillFor = p => p.out ? '<span class="pill idle">Clocked out</span>' : statusPill(p);
   const head = (avatar, kicker, title, sub) => `<h2>${kicker}</h2><div class="d-head"><div class="avatar" aria-hidden="true">${avatar}</div><div style="min-width:0"><p class="d-title">${title}</p>${sub ? `<p class="d-sub">${sub}</p>` : ''}</div>${state.selected ? '<button type="button" class="d-close" data-close aria-label="Close details">×</button>' : ''}</div>`;
-  const personEmoji = p => p.site === 'hq' ? { M: '👨‍💼', F: '👩‍💼' }[p.gender] || '🧑‍💼' : { M: '👷‍♂️', F: '👷‍♀️' }[p.gender] || '👷';
+  const personEmoji = p => isOffice(p.site) ? { M: '👨‍💼', F: '👩‍💼' }[p.gender] || '🧑‍💼' : { M: '👷‍♂️', F: '👷‍♀️' }[p.gender] || '👷';
   const pbtn = p => `<button type="button" class="lnk" data-pid="${p.id}">${esc(p.name)}</button>`;
   const sbtn = s => `<button type="button" class="lnk" data-site="${esc(s.id)}">${esc(s.name)}</button>`;
   const ago = iso => { if (!iso) return 'never'; const sec = Math.round((Date.now() - new Date(iso)) / 1000); return sec < 60 ? `${sec}s ago` : `${Math.round(sec / 60)} min ago`; };
@@ -2042,7 +2072,7 @@ h1 { margin: 0; font-family: var(--font-fun); font-size: 28px; font-weight: 700;
   const lookText = p => {
     const hair = { short: 'Short hair', long: 'Long hair', ponytail: 'Ponytail', bun: 'Hair in a bun', tudung: 'Tudung' }[p.look.hair];
     const outfit = { trousers: 'trousers', skirt: 'skirt', kurung: 'baju kurung' }[p.look.outfit];
-    return (p.site !== 'hq' ? 'Hard hat · ' : '') + `${hair} · ${outfit}`;
+    return (!isOffice(p.site) ? 'Hard hat · ' : '') + `${hair} · ${outfit}`;
   };
   const SIZE_TEXT = { S: 'Small · up to 8 crew', M: 'Medium · 9–20 crew', L: 'Large · 21+ crew' };
 
@@ -2051,12 +2081,12 @@ h1 { margin: 0; font-family: var(--font-fun); font-size: 28px; font-weight: 700;
     const sel = state.selected, c = stats();
     if (!sel) {
       el.innerHTML = head('👀', 'Details', 'Today at a glance', 'Tap a person, a company name, a project or the hotel and beach on the map.')
-        + rows([['Data', `Live from AltomateHR · updated ${ago(state.at)}`], ['Companies', COMPANIES.length], ['Projects', `${ONMAP.length} on the map · ${QUIET.length} quiet`], ['Headcount', people.length],
+        + rows([['Data', `Live from AltomateHR · updated ${ago(state.at)}`], ['Companies', COMPANIES.length], ['Projects', `${ONMAP.filter(isProject).length} on the map · ${QUIET.length} quiet`], ['Headcount', people.length],
           ['Clocked in', `${c.clocked} of ${c.expected}`], ['Late, not clocked in', c.late], ['Clocked out', c.done], ['On leave today', c.leave]]);
       return;
     }
     if (sel.type === 'cat') {
-      el.innerHTML = head('🐈', 'Staff', 'Mochi', 'Chief Morale Officer · HQ')
+      el.innerHTML = head('🐈', 'Staff', 'Mochi', 'Chief Morale Officer · HR modules')
         + `<div class="pills"><span class="pill ok">On site</span><span class="pill primary">Always on break</span></div>`
         + rows([['Clocked in', 'Never'], ['Geofence', 'Whole building']]);
       return;
@@ -2065,10 +2095,10 @@ h1 { margin: 0; font-family: var(--font-fun); font-size: 28px; font-weight: 700;
       const p = people[sel.id], s = siteById[p.site];
       const pills = pillFor(p) + (p.late && isIn(p) ? `<span class="pill warn">Late ${p.late} min</span>` : '');
       let r;
-      if (p.out) r = [['Project', s.id === 'hq' ? 'No project' : esc(s.name)], ['Clocked in', p.clockIn == null ? '—' : hhmm(p.clockIn)], ['Clocked out', p.clockOutAt == null ? '—' : hhmm(p.clockOutAt)]];
+      if (p.out) r = [['Project', s.id === 'hq' ? 'No project' : s.hq ? `No project (${esc(s.name)})` : esc(s.name)], ['Clocked in', p.clockIn == null ? '—' : hhmm(p.clockIn)], ['Clocked out', p.clockOutAt == null ? '—' : hhmm(p.clockOutAt)]];
       else if (p.status === 'notin') r = [['Clock-in', 'Not yet today']];
       else if (p.status === 'leave') r = [['Today', esc(p.leaveType || 'Leave')], ['Leave ends', dmy(p.leaveUntil)]];
-      else r = [['Project', s.id === 'hq' ? 'No project picked' : esc(s.name)], ['Clocked in', hhmm(p.clockIn)], ['Distance from site', p.dist == null ? 'No GPS' : `${p.dist} m`], ['Geofence radius', `${s.fenceM} m`]];
+      else r = [['Project', s.id === 'hq' ? 'No project picked' : s.hq ? `No project picked (at ${esc(s.name)})` : esc(s.name)], ['Clocked in', hhmm(p.clockIn)], ['Distance from site', p.dist == null ? 'No GPS' : `${p.dist} m`], ['Geofence radius', `${s.fenceM} m`]];
       r.unshift(['Company', esc(coByShort[p.co].name)]);
       if (p.status === 'outside' && p.approval) r.push(['Approval', esc(p.approval.toLowerCase())]);
       el.innerHTML = head(personEmoji(p), 'Employee', esc(p.name), esc(p.role))
@@ -2080,9 +2110,9 @@ h1 { margin: 0; font-family: var(--font-fun); font-size: 28px; font-weight: 700;
       const s = siteById[sel.id], ps = people.filter(p => p.site === s.id), sc = siteStats(s.id);
       const hid = view ? view.hiddenAt(s.id) : 0;
       const onsite = ps.filter(p => p.status === 'onsite');
-      el.innerHTML = head(s.em, s.id === 'hq' ? 'Office' : 'Project site', esc(s.name), `${esc(s.addr)} · ${esc(coName(s))}`)
+      el.innerHTML = head(s.em, s.id === 'hq' ? 'Shared rooms' : s.hq ? 'Company HQ' : 'Project site', esc(s.name), `${esc(s.addr)} · ${esc(coName(s))}`)
         + `<div class="pills"><span class="pill ok">${sc.onsite} on site</span>${sc.outside ? `<span class="pill warn">${sc.outside} outside</span>` : ''}${sc.done ? `<span class="pill idle">${sc.done} clocked out</span>` : ''}${hid ? `<span class="pill primary">👥 +${hid} more</span>` : ''}</div>
-        ${rows([['Working hours', `${s.start}–${s.end}`], ['Geofence radius', `${s.fenceM} m`], ...(s.id === 'hq' ? [] : [['Zone size', SIZE_TEXT[s.size] || '—']])])}
+        ${rows([['Working hours', `${s.start}–${s.end}`], ['Geofence radius', `${s.fenceM} m`], ...(isOffice(s.id) ? [] : [['Zone size', SIZE_TEXT[s.size] || '—']])])}
         ${list('Outside geofence', ps.filter(p => p.status === 'outside').map(p => [pbtn(p), p.dist == null ? 'no GPS' : `${p.dist} m`]), 'Everyone clocked in is inside the fence.')}
         <div class="sec">On site · ${onsite.length}</div><ul class="list scroll">${onsite.length ? onsite.map(p => `<li><span>${pbtn(p)} <span class="d-sub">· ${esc(p.role)}</span></span><span class="lv">${hhmm(p.clockIn)}</span></li>`).join('') : '<li class="empty">Nobody right now.</li>'}</ul>
         ${list('Clocked out', ps.filter(p => p.out).map(p => [pbtn(p), p.clockOutAt == null ? '' : hhmm(p.clockOutAt)]), 'Nobody yet.')}`;
@@ -2098,10 +2128,11 @@ h1 { margin: 0; font-family: var(--font-fun); font-size: 28px; font-weight: 700;
       return;
     }
     if (sel.type === 'company') {
-      const co = coByShort[sel.id], ss = SITES.filter(s => s.region === sel.id), ps = people.filter(p => p.co === sel.id);
+      const co = coByShort[sel.id], ss = SITES.filter(s => s.region === sel.id && isProject(s)), ps = people.filter(p => p.co === sel.id);
       const n = st => ps.filter(p => !p.out && p.status === st).length, busy = ss.filter(s => !s.quiet);
       el.innerHTML = head(co.em, 'Company', esc(co.name), `${ss.length} projects · ${ps.length} people`)
         + rows([['Clocked in', `${n('onsite') + n('outside')} of ${ps.length - n('leave')}`], ['Outside geofence', n('outside')], ['Not clocked in', n('notin')], ['Clocked out', ps.filter(p => p.out).length], ['On leave', n('leave')]])
+        + rows([['Head office', sbtn(siteById[hqOf(COMPANIES.indexOf(co))])]])
         + list(`Busy projects · ${busy.length}`, busy.map(s => [sbtn(s), `${people.filter(p => p.site === s.id && isIn(p)).length} in`]), 'Nobody has clocked in at a project yet.')
         + `<p class="d-foot">${ss.length - busy.length} quiet projects. Each company is read with its own key; their data stays separate.</p>`;
       return;
@@ -2215,7 +2246,7 @@ h1 { margin: 0; font-family: var(--font-fun); font-size: 28px; font-weight: 700;
     if (b.dataset.pid) goPerson(people[+b.dataset.pid]); else if (siteById[b.dataset.site]) goSite(siteById[b.dataset.site]);
   });
   const regionSel = document.getElementById('region');
-  regionSel.innerHTML += REGIONS.map(r => `<option value="${r}">${r} · ${ONMAP.filter(s => s.region === r).length}</option>`).join('');
+  regionSel.innerHTML += REGIONS.map(r => `<option value="${r}">${r} · ${ONMAP.filter(s => s.region === r && isProject(s)).length}</option>`).join('');
   regionSel.addEventListener('change', () => view && view.fitRegion(regionSel.value));
   const searchEl = document.getElementById('search');
   document.getElementById('findList').innerHTML = [...SITES.map(s => s.name), ...people.map(p => p.name)].map(n => `<option value="${n}"></option>`).join('');
